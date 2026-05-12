@@ -6,20 +6,12 @@ import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
+import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
 
 dotenv.config();
 
 // Initialize Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-// Read Firebase Config
-const firebaseConfigPath = path.resolve(process.cwd(), "firebase-applet-config.json");
-let firebaseConfig = {};
-try {
-    firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
-} catch (e) {
-    console.error("Could not read firebase-applet-config.json", e);
-}
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -207,14 +199,14 @@ export async function initServer() {
 
       console.log(`Received message from ${sender}: ${message}`);
       
-      // Reply immediately so Fonnte doesn't disconnect/timeout
+      // Handle the logic correctly
+      await handleWhatsAppMessage(sender, message);
+      
+      // Reply immediately so Fonnte doesn't disconnect/timeout, but in Vercel we MUST complete async tasks first.
       res.status(200).json({
           status: true,
           message: "Data reached the server successfully"
       });
-      
-      // Handle the logic asynchronously
-      handleWhatsAppMessage(sender, message);
       
     } catch (error) {
       console.error("Webhook error:", error);
@@ -236,14 +228,14 @@ export async function initServer() {
 
       console.log(`Received message from ${sender}: ${message}`);
       
-      // Reply immediately so Fonnte doesn't disconnect/timeout
+      // Handle the logic correctly
+      await handleWhatsAppMessage(sender, message);
+      
+      // Reply immediately so Fonnte doesn't disconnect/timeout, but in Vercel we MUST complete async tasks first.
       res.status(200).json({
           status: true,
           message: "Data reached the server successfully"
       });
-      
-      // Handle the logic asynchronously
-      handleWhatsAppMessage(sender, message);
       
     } catch (error) {
       console.error("Webhook error:", error);
