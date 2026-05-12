@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "UserState": {
+      "title": "User State",
+      "description": "Store entire user app state",
+      "type": "object",
+      "properties": {
+        "userProfile": { "type": "object" },
+        "budgets": { "type": "array" },
+        "dailyExpenses": { "type": "array" },
+        "fundHistory": { "type": "array" },
+        "archives": { "type": "array" },
+        "lastArchiveDate": { "type": "string" },
+        "savingsGoals": { "type": "array" },
+        "wishlist": { "type": "array" },
+        "subscriptions": { "type": "array" },
+        "shoppingList": { "type": "array" },
+        "debts": { "type": "array" },
+        "unlockedAchievements": { "type": "object" },
+        "achievementData": { "type": "object" },
+        "assets": { "type": "array" },
+        "spentPoints": { "type": "number" },
+        "inventory": { "type": "array" },
+        "activeTheme": { "type": "string" },
+        "bonusPoints": { "type": "number" },
+        "redeemedCodes": { "type": "array" },
+        "redeemedMustika": { "type": "number" },
+        "collectedSkins": { "type": "array" },
+        "lastDailyBonusClaim": { "type": "string" },
+        "accumulatedXP": { "type": "number" },
+        "activeTrendChartTheme": { "type": "string" },
+        "activeBudgetChartTheme": { "type": "string" },
+        "levelRewardsClaimed": { "type": "array" }
+      }
+    }
+  },
+  "firestore": {
+    "/userState/{userId}": {
+      "schema": { "$ref": "#/entities/UserState" },
+      "description": "User's application state"
+    }
+  }
+}

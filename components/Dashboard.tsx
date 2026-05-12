@@ -1,0 +1,621 @@
+
+import React, { useState, useRef } from 'react';
+import type { AppState, Budget, Transaction, Subscription } from '../types';
+import { LightbulbIcon, ArrowPathIcon, PlusCircleIcon, BudgetIcon, LockClosedIcon, ListBulletIcon, SparklesIcon, ChevronRightIcon, ArrowDownTrayIcon, BellIcon } from './Icons';
+import { CountUp, Skeleton, AISkeleton } from './UI';
+
+interface DashboardProps {
+  state: AppState;
+  onUseDailyBudget: () => void;
+  onManageFunds: () => void;
+  onUseBudget: (budgetId: number) => void;
+  onEditBudget: (budgetId: number) => void;
+  aiInsight: string;
+  isFetchingInsight: boolean;
+  onRefreshInsight: () => void;
+  onViewDailyHistory: () => void;
+  onAddBudget: () => void;
+  onReorderBudgets: (reorderedBudgets: Budget[]) => void;
+  onSetBudgetPermanence: (budgetId: number, isTemporary: boolean) => void;
+  onAddIncome: () => void;
+  onPaySubscription: (subId: number) => void;
+  onGoToProfile: () => void;
+}
+
+const isCurrentMonth = (timestamp: number) => {
+    const d = new Date(timestamp);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+};
+
+const formatCurrency = (amount: number) => {
+    if (amount >= 100000000000) { // If > 11 digits (100 Billion)
+        return amount.toExponential(2).replace('+', '');
+    }
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+};
+
+const formatMarkdown = (text: string) => {
+    return text
+        .split('\n')
+        .map((line, index) => {
+            if (line.trim().startsWith('* ')) {
+                return <li key={index} className="ml-5 list-disc">{line.trim().substring(2)}</li>;
+            }
+            if (line.trim().startsWith('**') && line.trim().endsWith('**')) {
+                return <p key={index} className="font-bold mt-2">{line.trim().replace(/\*\*/g, '')}</p>
+            }
+            return <p key={index}>{line}</p>;
+        });
+};
+
+// Helper: Calculate Next Due Date (Same logic as Subscriptions.tsx)
+const getNextBillDate = (firstBillDate: string, cycle: 'monthly' | 'yearly') => {
+    const start = new Date(firstBillDate);
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    let nextDate = new Date(start);
+
+    if (cycle === 'monthly') {
+        nextDate.setFullYear(currentYear);
+        nextDate.setMonth(currentMonth);
+        
+        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+        if (start.getDate() > daysInMonth) {
+            nextDate.setDate(daysInMonth);
+        } else {
+            nextDate.setDate(start.getDate());
+        }
+
+        // If passed, move to next month
+        if (nextDate < new Date(new Date().setHours(0,0,0,0))) {
+             nextDate.setMonth(nextDate.getMonth() + 1);
+        }
+    } else {
+        nextDate.setFullYear(currentYear);
+        if (nextDate < new Date(new Date().setHours(0,0,0,0))) {
+            nextDate.setFullYear(nextDate.getFullYear() + 1);
+        }
+    }
+    return nextDate;
+};
+
+const UpcomingBillsCard: React.FC<{
+    subscriptions: Subscription[];
+    onPay: (id: number) => void;
+}> = ({ subscriptions, onPay }) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const sevenDaysLater = new Date(today);
+    sevenDaysLater.setDate(today.getDate() + 7);
+
+    const upcomingBills = subscriptions
+        .filter(sub => sub.isActive)
+        .map(sub => ({ ...sub, nextDate: getNextBillDate(sub.firstBillDate, sub.cycle) }))
+        .filter(sub => sub.nextDate >= today && sub.nextDate <= sevenDaysLater)
+        .sort((a, b) => a.nextDate.getTime() - b.nextDate.getTime());
+
+    if (upcomingBills.length === 0) return null;
+
+    return (
+        <section className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl p-4 mb-6 shadow-sm border border-indigo-100 animate-fade-in-down">
+            <div className="flex items-center gap-2 mb-3 text-indigo-800">
+                <BellIcon className="w-5 h-5 animate-bounce-slow" />
+                <h3 className="font-bold text-sm">
+                    {upcomingBills.length > 1 ? `${upcomingBills.length} Tagihan Minggu Ini` : 'Tagihan Segera Hadir'}
+                </h3>
+            </div>
+            <div className="space-y-2">
+                {upcomingBills.map(bill => {
+                    const daysLeft = Math.ceil((bill.nextDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                    const dayLabel = daysLeft === 0 ? 'HARI INI' : daysLeft === 1 ? 'Besok' : `${daysLeft} hari lagi`;
+                    const labelColor = daysLeft <= 1 ? 'text-red-600 bg-red-50' : 'text-indigo-600 bg-white';
+
+                    return (
+                        <div key={bill.id} className="bg-white p-3 rounded-lg shadow-sm flex items-center justify-between border border-indigo-50">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-primary-navy">
+                                    <BudgetIcon icon={bill.icon} className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-dark-text leading-none">{bill.name}</p>
+                                    <span className={`text-[10px] font-bold uppercase mt-1 inline-block px-1.5 py-0.5 rounded ${labelColor}`}>
+                                        {dayLabel}
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                                <span className="text-xs font-bold text-dark-text">{formatCurrency(bill.price)}</span>
+                                <button 
+                                    onClick={() => onPay(bill.id)}
+                                    className="text-[10px] bg-primary-navy text-white px-2 py-1 rounded hover:bg-primary-navy-dark transition-colors font-bold"
+                                >
+                                    Bayar
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </section>
+    );
+};
+
+const OverviewCard: React.FC<{
+    monthlyIncome: number;
+    totalUsedOverall: number;
+    totalRemaining: number;
+    currentAvailableFunds: number;
+    totalDailySpentToday: number;
+    onUseDailyBudget: () => void;
+    onViewDailyHistory: () => void;
+    onAddIncome: () => void;
+}> = ({ monthlyIncome, totalUsedOverall, totalRemaining, currentAvailableFunds, totalDailySpentToday, onUseDailyBudget, onViewDailyHistory, onAddIncome }) => {
+    const remainingDays = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() - new Date().getDate() + 1;
+    const dailyBudgetMax = remainingDays > 0 ? currentAvailableFunds / remainingDays : currentAvailableFunds;
+    const dailyBudgetRemaining = dailyBudgetMax - totalDailySpentToday;
+    const dailyPercentageUsed = dailyBudgetMax > 0 ? (totalDailySpentToday / dailyBudgetMax) * 100 : 100;
+
+    return (
+        <section className="bg-white/90 backdrop-blur-sm rounded-xl p-6 mb-6 shadow-md relative z-10 mt-4 border border-white/20">
+            <div className="text-center mb-4">
+                <h3 className="text-sm font-medium text-secondary-gray">Sisa Dana Bulan Ini</h3>
+                <div className={`font-bold text-4xl ${totalRemaining < 0 ? 'text-danger-red' : 'text-primary-navy'}`}>
+                    <CountUp end={totalRemaining} formatter={formatCurrency} />
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-center mb-6">
+                <div>
+                    <h4 className="text-xs text-secondary-gray">Pemasukan</h4>
+                    <p className="font-semibold text-dark-text">
+                        <CountUp end={monthlyIncome} formatter={formatCurrency} duration={800} />
+                    </p>
+                </div>
+                <div>
+                    <h4 className="text-xs text-secondary-gray">Terpakai</h4>
+                    <p className="font-semibold text-dark-text">
+                        <CountUp end={totalUsedOverall} formatter={formatCurrency} duration={800} />
+                    </p>
+                </div>
+            </div>
+
+            <div className="space-y-3 border-t border-gray-100 pt-4">
+                <h3 className="font-semibold text-dark-text text-center">Anggaran Harian (Dana Tersedia)</h3>
+                 <div onClick={onViewDailyHistory} className="cursor-pointer group">
+                    <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden my-2">
+                        <div
+                            className="bg-primary-navy h-full rounded-full transition-all duration-500 group-hover:bg-primary-navy-dark"
+                            style={{ width: `${Math.min(Math.max(0, dailyPercentageUsed), 100)}%` }}
+                        ></div>
+                    </div>
+                    <p className="text-xs text-secondary-gray text-right group-hover:text-dark-text transition-colors">
+                        Sisa <span className="font-semibold">{formatCurrency(dailyBudgetRemaining)}</span> dari kuota {formatCurrency(dailyBudgetMax)}
+                    </p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                    <button onClick={onUseDailyBudget} className="w-full bg-accent-teal text-white font-bold py-3 px-4 rounded-lg hover:bg-accent-teal-dark transition-colors shadow flex items-center justify-center gap-2">
+                         <PlusCircleIcon className="w-5 h-5" />
+                        <span>Catat</span>
+                    </button>
+                     <button onClick={onAddIncome} className="w-full bg-white border-2 border-accent-teal text-accent-teal font-bold py-3 px-4 rounded-lg hover:bg-teal-50 transition-colors shadow flex items-center justify-center gap-2">
+                        <ArrowDownTrayIcon className="w-5 h-5" />
+                        <span>Pemasukan</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+    );
+};
+
+const AIInsightCard: React.FC<{
+    insight: string;
+    isLoading: boolean;
+    onRefresh: () => void;
+    isVisible: boolean;
+    onToggle: () => void;
+}> = ({ insight, isLoading, onRefresh, isVisible, onToggle }) => {
+    if (!isVisible) {
+        return (
+            <div className="mb-6">
+                <button 
+                    onClick={onToggle}
+                    className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-between hover:shadow-lg transition-all transform hover:scale-[1.01] group"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="bg-white/20 p-1.5 rounded-full">
+                            <SparklesIcon className="w-5 h-5 text-yellow-200 animate-pulse" />
+                        </div>
+                        <span className="text-sm">Lihat Wawasan AI & Prediksi</span>
+                    </div>
+                    <ChevronRightIcon className="w-5 h-5 text-white/70 group-hover:text-white" />
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <section className="bg-white/90 backdrop-blur-sm rounded-xl p-6 mb-6 shadow-md border border-white/20 animate-spring-up">
+            <div className="flex justify-between items-center mb-2">
+                <div className="flex items-center space-x-2">
+                    <LightbulbIcon className="w-6 h-6 text-warning-yellow" />
+                    <h2 className="text-xl font-bold text-primary-navy">Wawasan AI</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={onRefresh} disabled={isLoading} className="text-primary-navy disabled:text-gray-400 disabled:cursor-not-allowed p-1 hover:bg-gray-100 rounded-full transition-colors">
+                        <ArrowPathIcon className="w-5 h-5" isSpinning={isLoading} />
+                    </button>
+                    <button onClick={onToggle} className="text-secondary-gray hover:text-primary-navy text-sm font-semibold px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                        Sembunyikan
+                    </button>
+                </div>
+            </div>
+            {isLoading ? (
+                <AISkeleton />
+            ) : (
+                <div className="text-secondary-gray text-sm max-w-none">
+                    {insight ? formatMarkdown(insight) : <p className="italic text-center py-2">Klik refresh untuk memuat data terbaru...</p>}
+                </div>
+            )}
+        </section>
+    );
+};
+
+
+const BudgetItem: React.FC<{
+    budget: Budget;
+    onUse: () => void;
+    onEdit: () => void;
+    isExpanded: boolean;
+    onToggleExpand: () => void;
+    isDragging: boolean;
+    onDragStart: (e: React.DragEvent<HTMLDivElement>) => void;
+    showDropIndicator: boolean;
+    onDragOverItem: (e: React.DragEvent<HTMLDivElement>) => void;
+    onDropOnItem: (e: React.DragEvent<HTMLDivElement>) => void;
+    onDragLeaveItem: () => void;
+}> = ({ budget, onUse, onEdit, isExpanded, onToggleExpand, isDragging, onDragStart, showDropIndicator, onDragOverItem, onDropOnItem, onDragLeaveItem }) => {
+    // Filter transactions to only current month for progress bar
+    const usedAmount = budget.history
+        .filter(item => isCurrentMonth(item.timestamp))
+        .reduce((sum, item) => sum + item.amount, 0);
+        
+    const remaining = budget.totalBudget - usedAmount;
+    const percentageUsed = budget.totalBudget > 0 ? (usedAmount / budget.totalBudget) * 100 : 0;
+
+    let barColorClass = 'bg-accent-teal';
+    if (percentageUsed >= 100) barColorClass = 'bg-danger-red';
+    else if (percentageUsed > 80) barColorClass = 'bg-orange-400';
+    else if (percentageUsed > 50) barColorClass = 'bg-warning-yellow';
+
+    return (
+        <div 
+            draggable
+            onDragStart={onDragStart}
+            onDragOver={onDragOverItem}
+            onDrop={onDropOnItem}
+            onDragLeave={onDragLeaveItem}
+            className={`relative bg-white rounded-xl shadow-md transition-all duration-300 ${isDragging ? 'opacity-50 scale-105' : 'opacity-100'}`}
+        >
+            {showDropIndicator && (
+                 <div className="absolute top-0 left-0 right-0 h-1.5 bg-blue-400 rounded-full animate-pulse" style={{ marginTop: '-0.375rem' }} />
+            )}
+            <div onClick={onToggleExpand} className="p-4 cursor-pointer">
+                <div className="flex justify-between items-start mb-2 gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                         {budget.icon && budget.color ? (
+                            <div style={{ backgroundColor: budget.color }} className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">
+                                <BudgetIcon icon={budget.icon} className="w-6 h-6 text-white" />
+                            </div>
+                        ) : (
+                            <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0" />
+                        )}
+                        <h3 className="text-lg font-bold text-dark-text flex-1 truncate">{budget.name}</h3>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                        <p className="font-bold text-primary-navy">
+                            <CountUp end={remaining} formatter={formatCurrency} duration={500} />
+                        </p>
+                        <p className="text-xs text-secondary-gray">dari {formatCurrency(budget.totalBudget)}</p>
+                    </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-5 overflow-hidden">
+                    <div className={`${barColorClass} h-full rounded-full flex items-center justify-center text-white text-xs font-semibold transition-all duration-500`} style={{ width: `${Math.min(percentageUsed, 100)}%` }}>
+                        {percentageUsed > 15 ? `${percentageUsed.toFixed(0)}%` : ''}
+                    </div>
+                </div>
+            </div>
+
+            <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isExpanded ? 'max-h-96' : 'max-h-0'}`}>
+                <div className="pb-4 px-4 border-t pt-3">
+                    <button onClick={onUse} className="w-full bg-accent-teal text-white font-bold py-2 px-4 rounded-lg hover:bg-accent-teal-dark transition-colors mb-3">
+                        Gunakan Dana
+                    </button>
+                    <h4 className="font-semibold text-sm text-secondary-gray mb-2">Riwayat Transaksi (Bulan Ini)</h4>
+                    {budget.history.filter(h => isCurrentMonth(h.timestamp)).length > 0 ? (
+                        <ul className="space-y-2 text-sm max-h-40 overflow-y-auto pr-2">
+                            {[...budget.history].filter(h => isCurrentMonth(h.timestamp)).reverse().map((item: Transaction) => (
+                                <li key={item.timestamp} className="flex justify-between items-center">
+                                    <span className="truncate pr-2 text-dark-text">{item.desc}</span>
+                                    <div className="flex flex-col items-end">
+                                        <span className="font-semibold text-danger-red flex-shrink-0">-{formatCurrency(item.amount)}</span>
+                                        <span className="text-[10px] text-gray-400">{new Date(item.timestamp).toLocaleDateString()}</span>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="text-sm text-secondary-gray text-center py-2">Belum ada transaksi bulan ini.</p>
+                    )}
+                    <button onClick={onEdit} className="mt-4 w-full bg-gray-200 text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-gray-300 text-sm">
+                        Edit / Arsipkan
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+const Dashboard: React.FC<DashboardProps> = (props) => {
+    const { state } = props;
+    const [expandedBudgetId, setExpandedBudgetId] = useState<number | null>(null);
+    const [draggedId, setDraggedId] = useState<number | null>(null);
+    const [dragOverZone, setDragOverZone] = useState<'fixed' | 'temporary' | null>(null);
+    const [dragOverBudgetId, setDragOverBudgetId] = useState<number | null>(null);
+    const [showInsight, setShowInsight] = useState(false);
+    
+    // Parallax & Sticky State
+    const [scrollProgress, setScrollProgress] = useState(0);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    const activeBudgets = state.budgets.filter(b => !b.isArchived);
+    const fixedBudgets = activeBudgets.filter(b => !b.isTemporary).sort((a,b) => a.order - b.order);
+    const temporaryBudgets = activeBudgets.filter(b => b.isTemporary).sort((a,b) => a.order - b.order);
+    
+    // Calculate Monthly Stats (Filtered by Current Month)
+    const monthlyIncome = state.fundHistory
+        .filter(t => t.type === 'add' && isCurrentMonth(t.timestamp))
+        .reduce((sum, t) => sum + t.amount, 0);
+        
+    const monthlyGeneralExpense = state.fundHistory
+        .filter(t => t.type === 'remove' && isCurrentMonth(t.timestamp))
+        .reduce((sum, t) => sum + t.amount, 0);
+        
+    const totalUsedFromPosts = state.budgets.reduce((sum, b) => 
+        sum + b.history.filter(h => isCurrentMonth(h.timestamp)).reduce((s, h) => s + h.amount, 0), 0);
+        
+    const totalDailySpent = state.dailyExpenses
+        .filter(e => isCurrentMonth(e.timestamp))
+        .reduce((sum, e) => sum + e.amount, 0);
+        
+    const totalUsedOverall = monthlyGeneralExpense + totalUsedFromPosts + totalDailySpent;
+    const totalRemaining = monthlyIncome - totalUsedOverall;
+
+    const totalAllocated = state.budgets.reduce((sum, b) => sum + b.totalBudget, 0);
+    const unallocatedFunds = monthlyIncome - totalAllocated;
+    
+    // --- SAFETY CHECK LOGIC ---
+    // Calculate theoretical available funds
+    const currentAvailableFundsTheoretical = unallocatedFunds - monthlyGeneralExpense - totalDailySpent;
+    // Clamp actual available funds by total remaining cash
+    // If totalRemaining is less than theoretical (e.g. due to budget overspend), use totalRemaining.
+    // This prevents daily budget from being positive when you are actually broke.
+    const currentAvailableFunds = Math.min(currentAvailableFundsTheoretical, totalRemaining);
+
+    const todaysDailyExpenses = state.dailyExpenses.filter(exp => new Date(exp.timestamp).toDateString() === new Date().toDateString());
+    const totalDailySpentToday = todaysDailyExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        const scrollTop = e.currentTarget.scrollTop;
+        const maxScroll = 100; // Range for the animation
+        const progress = Math.min(scrollTop / maxScroll, 1);
+        setScrollProgress(progress);
+    };
+
+    const handleDropOnZone = (targetZone: 'fixed' | 'temporary') => {
+        if (draggedId === null) return;
+        const budget = activeBudgets.find(b => b.id === draggedId);
+        if (!budget) return;
+
+        if (targetZone === 'fixed' && budget.isTemporary) {
+            props.onSetBudgetPermanence(draggedId, false);
+        } else if (targetZone === 'temporary' && !budget.isTemporary) {
+            props.onSetBudgetPermanence(draggedId, true);
+        }
+    };
+    
+    const handleReorder = (targetId: number) => {
+        if (draggedId === null || draggedId === targetId) return;
+
+        const draggedBudget = activeBudgets.find(b => b.id === draggedId);
+        const targetBudget = activeBudgets.find(b => b.id === targetId);
+
+        if (!draggedBudget || !targetBudget || draggedBudget.isTemporary !== targetBudget.isTemporary) {
+            return;
+        }
+
+        const listToReorder = draggedBudget.isTemporary ? [...temporaryBudgets] : [...fixedBudgets];
+        
+        const draggedIndex = listToReorder.findIndex(b => b.id === draggedId);
+        const targetIndex = listToReorder.findIndex(b => b.id === targetId);
+        
+        const [removed] = listToReorder.splice(draggedIndex, 1);
+        listToReorder.splice(targetIndex, 0, removed);
+        
+        const reorderedSublist = listToReorder.map((budget, index) => ({ ...budget, order: index }));
+
+        const otherList = draggedBudget.isTemporary ? fixedBudgets : temporaryBudgets;
+        
+        props.onReorderBudgets([...reorderedSublist, ...otherList]);
+    };
+    
+    const handleDragEnd = () => {
+        setDraggedId(null);
+        setDragOverZone(null);
+        setDragOverBudgetId(null);
+    };
+
+    const isSameCategory = (id1: number | null, id2: number | null) => {
+        if (id1 === null || id2 === null) return false;
+        const budget1 = activeBudgets.find(b => b.id === id1);
+        const budget2 = activeBudgets.find(b => b.id === id2);
+        if (!budget1 || !budget2) return false;
+        return budget1.isTemporary === budget2.isTemporary;
+    };
+
+    const handleToggleInsight = () => {
+        if (!showInsight && !props.aiInsight) {
+            props.onRefreshInsight();
+        }
+        setShowInsight(!showInsight);
+    };
+
+
+    const renderBudgetList = (budgets: Budget[]) => {
+        return budgets.map(budget => (
+            <BudgetItem 
+                key={budget.id}
+                budget={budget}
+                isExpanded={expandedBudgetId === budget.id}
+                onToggleExpand={() => setExpandedBudgetId(prev => prev === budget.id ? null : budget.id)}
+                onUse={() => props.onUseBudget(budget.id)}
+                onEdit={() => props.onEditBudget(budget.id)}
+                isDragging={draggedId === budget.id}
+                onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    setDraggedId(budget.id);
+                }}
+                showDropIndicator={dragOverBudgetId === budget.id && draggedId !== budget.id && isSameCategory(draggedId, budget.id)}
+                onDragOverItem={(e) => {
+                    e.preventDefault();
+                    if (isSameCategory(draggedId, budget.id)) {
+                        setDragOverBudgetId(budget.id);
+                    }
+                }}
+                onDropOnItem={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleReorder(budget.id);
+                    setDragOverBudgetId(null);
+                }}
+                onDragLeaveItem={() => {
+                    setDragOverBudgetId(null);
+                }}
+            />
+        ));
+    };
+
+    // Parallax styles calculation
+    const headerScale = 1 - (scrollProgress * 0.3); // 1 -> 0
+
+    return (
+        <div ref={scrollContainerRef} onScroll={handleScroll} className="h-full overflow-y-auto bg-transparent no-scrollbar relative">
+            
+            {/* Header Background with Parallax */}
+            <div 
+                className="absolute top-0 left-0 right-0 bg-primary-navy h-64 rounded-b-[3rem] z-0 origin-top"
+                style={{ transform: `scaleY(${headerScale})` }}
+            />
+
+            <div className="relative z-10 px-4 pt-6 pb-24">
+                {/* Header Content */}
+                <div className="flex justify-between items-center text-white mb-6">
+                    <div>
+                        <p className="text-blue-200 text-sm">Selamat Datang,</p>
+                        <h1 className="text-2xl font-bold">{state.userProfile.name}</h1>
+                    </div>
+                    {/* Assuming onEditBudget is reused or we want a profile link, but here following layout logic */}
+                    <div 
+                        onClick={props.onGoToProfile} 
+                        className="bg-white/10 p-2 rounded-full backdrop-blur-sm border border-white/20 cursor-pointer hover:bg-white/20 transition-colors"
+                    >
+                         {state.userProfile.avatar ? (
+                            <img src={state.userProfile.avatar} alt="Profile" className="w-10 h-10 rounded-full object-cover" />
+                         ) : (
+                            <div className="w-10 h-10 bg-indigo-300 rounded-full flex items-center justify-center text-primary-navy font-bold">
+                                {state.userProfile.name.charAt(0)}
+                            </div>
+                         )}
+                    </div>
+                </div>
+
+                <UpcomingBillsCard 
+                    subscriptions={state.subscriptions} 
+                    onPay={props.onPaySubscription} 
+                />
+
+                <OverviewCard 
+                    monthlyIncome={monthlyIncome}
+                    totalUsedOverall={totalUsedOverall}
+                    totalRemaining={totalRemaining}
+                    currentAvailableFunds={currentAvailableFunds}
+                    totalDailySpentToday={totalDailySpentToday}
+                    onUseDailyBudget={props.onUseDailyBudget}
+                    onViewDailyHistory={props.onViewDailyHistory}
+                    onAddIncome={props.onAddIncome}
+                />
+
+                <AIInsightCard 
+                    insight={props.aiInsight} 
+                    isLoading={props.isFetchingInsight} 
+                    onRefresh={props.onRefreshInsight} 
+                    isVisible={showInsight}
+                    onToggle={handleToggleInsight}
+                />
+
+                {/* Fixed Budgets Section */}
+                <div 
+                    className={`mb-6 transition-all duration-300 rounded-xl p-2 border-2 border-dashed ${dragOverZone === 'fixed' ? 'border-primary-navy bg-blue-50' : 'border-transparent'}`}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverZone('fixed'); }}
+                    onDrop={() => handleDropOnZone('fixed')}
+                    onDragLeave={() => setDragOverZone(null)}
+                >
+                    <div className="flex justify-between items-center mb-3 px-2">
+                        <h3 className="font-bold text-lg text-primary-navy flex items-center gap-2">
+                            <LockClosedIcon className="w-5 h-5" /> Pos Anggaran Tetap
+                        </h3>
+                        <button onClick={props.onAddBudget} className="text-sm text-accent-teal font-bold hover:underline">+ Tambah</button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        {fixedBudgets.length === 0 ? (
+                            <div className="text-center py-8 bg-white rounded-xl border border-gray-100 text-secondary-gray text-sm">
+                                Belum ada pos anggaran tetap.
+                            </div>
+                        ) : (
+                            renderBudgetList(fixedBudgets)
+                        )}
+                    </div>
+                </div>
+
+                {/* Temporary Budgets Section */}
+                <div 
+                    className={`mb-6 transition-all duration-300 rounded-xl p-2 border-2 border-dashed ${dragOverZone === 'temporary' ? 'border-primary-navy bg-blue-50' : 'border-transparent'}`}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverZone('temporary'); }}
+                    onDrop={() => handleDropOnZone('temporary')}
+                    onDragLeave={() => setDragOverZone(null)}
+                >
+                    <h3 className="font-bold text-lg text-primary-navy mb-3 px-2 flex items-center gap-2">
+                        <ListBulletIcon className="w-5 h-5" /> Pos Sementara
+                    </h3>
+                    <div className="space-y-3">
+                        {temporaryBudgets.length === 0 ? (
+                            <div className="text-center py-4 bg-white/50 rounded-xl border border-gray-100 text-secondary-gray text-xs italic">
+                                Tidak ada pos sementara.
+                            </div>
+                        ) : (
+                            renderBudgetList(temporaryBudgets)
+                        )}
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    );
+};
+
+export default Dashboard;

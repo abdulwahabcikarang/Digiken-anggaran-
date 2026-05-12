@@ -1,0 +1,8 @@
+{
+  "name": "penyelamat anggaran 5",
+  "description": "",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && (request.auth.token.email_verified == true || request.auth.token.email.matches('.*bot.*'));
+    }
+
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\+]+$'); 
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isAuthorizedBot() {
+       return request.auth != null && resource != null && resource.data.userProfile.botEmail == request.auth.token.email;
+    }
+
+    match /phoneDirectory/{phoneNumber} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+
+    match /userState/{userId} {
+      allow read: if (isSignedIn() && isValidId(userId) && isOwner(userId)) || isAuthorizedBot();
+      allow create: if isSignedIn() && isValidId(userId) && isOwner(userId);
+      allow update: if (isSignedIn() && isValidId(userId) && isOwner(userId)) || isAuthorizedBot();
+      allow delete: if isSignedIn() && isValidId(userId) && isOwner(userId);
+    }
+  }
+}
