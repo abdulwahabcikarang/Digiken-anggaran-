@@ -6,7 +6,21 @@ import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
-import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+let firebaseConfig = {};
+try {
+    const configPath1 = path.join(__dirname, "firebase-applet-config.json");
+    const configPath2 = path.join(process.cwd(), "firebase-applet-config.json");
+    const configPath3 = path.join(__dirname, "..", "firebase-applet-config.json");
+    const finalPath = fs.existsSync(configPath1) ? configPath1 : (fs.existsSync(configPath2) ? configPath2 : configPath3);
+    firebaseConfig = JSON.parse(fs.readFileSync(finalPath, "utf-8"));
+} catch (e) {
+    console.error("Could not read firebase-applet-config.json", e);
+}
 
 dotenv.config();
 
