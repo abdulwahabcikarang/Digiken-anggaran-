@@ -17,7 +17,10 @@ const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const auth = getAuth(app);
 
 async function run() {
-  await signInWithEmailAndPassword(auth, process.env.FIREBASE_BOT_EMAIL, process.env.FIREBASE_BOT_PASSWORD);
+  console.log("Logging in...", process.env.FIREBASE_BOT_EMAIL);
+  const uc = await signInWithEmailAndPassword(auth, process.env.FIREBASE_BOT_EMAIL as string, process.env.FIREBASE_BOT_PASSWORD as string);
+  console.log("Logged in:", uc.user.uid);
+  console.log("Writing to phoneDirectory...");
   await setDoc(doc(db, "phoneDirectory", "628999999999"), { userId: "testUser" });
   await setDoc(doc(db, "userState", "testUser"), {
     userProfile: { name: "Test User" },

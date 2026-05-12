@@ -76,6 +76,11 @@ async function sendFonnteMessage(target: string, text: string) {
 
 async function handleWhatsAppMessage(sender: string, message: string) {
     if (!sender) return;
+
+    if (!auth.currentUser) {
+        console.log("[WA Handler] Bot not logged in (auth.currentUser is null). Re-logging in...");
+        await loginBot();
+    }
     
     sender = sender.replace(/\D/g, ''); // Ensure sender is numeric
     if (sender.startsWith('0')) {
