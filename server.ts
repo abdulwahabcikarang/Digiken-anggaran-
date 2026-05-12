@@ -203,12 +203,13 @@ export async function initServer() {
     try {
       console.log(`[Webhook] ${req.method} request received at ${req.url}`);
       const payload = req.method === 'GET' ? req.query : req.body;
+      console.log(`[Webhook Payload Detail] req.body:`, typeof req.body, req.body, `req.query:`, req.query, `Content-Type:`, req.headers['content-type']);
       const sender = typeof payload.sender === 'string' ? payload.sender : (typeof payload.pengirim === 'string' ? payload.pengirim : ''); // Fallbacks
       const message = typeof payload.message === 'string' ? payload.message : (typeof payload.pesan === 'string' ? payload.pesan : '');
       
       if (!sender || !message) {
           console.log(`[Webhook] Missing sender or message in payload:`, payload);
-          return res.status(200).json({ status: true, message: "OK (No message/sender)" });
+          return res.status(200).send("OK");
       }
 
       console.log(`Received message from ${sender}: ${message}`);
@@ -216,15 +217,12 @@ export async function initServer() {
       // Handle the logic correctly
       await handleWhatsAppMessage(sender, message);
       
-      // Reply immediately so Fonnte doesn't disconnect/timeout, but in Vercel we MUST complete async tasks first.
-      res.status(200).json({
-          status: true,
-          message: "Data reached the server successfully"
-      });
+      // Reply immediately so Fonnte doesn't disconnect/timeout
+      res.status(200).send("OK");
       
     } catch (error) {
       console.error("Webhook error:", error);
-      res.status(500).json({ error: "Server error" });
+      res.status(500).send("Server error");
     }
   });
 
@@ -237,7 +235,7 @@ export async function initServer() {
       
       if (!sender || !message) {
           console.log(`[Webhook] Missing sender or message in payload:`, payload);
-          return res.status(200).json({ status: true, message: "OK (No message/sender)" });
+          return res.status(200).send("OK");
       }
 
       console.log(`Received message from ${sender}: ${message}`);
@@ -245,11 +243,8 @@ export async function initServer() {
       // Handle the logic correctly
       await handleWhatsAppMessage(sender, message);
       
-      // Reply immediately so Fonnte doesn't disconnect/timeout, but in Vercel we MUST complete async tasks first.
-      res.status(200).json({
-          status: true,
-          message: "Data reached the server successfully"
-      });
+      // Reply immediately so Fonnte doesn't disconnect/timeout
+      res.status(200).send("OK");
       
     } catch (error) {
       console.error("Webhook error:", error);
