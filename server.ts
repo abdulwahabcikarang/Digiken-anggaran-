@@ -78,12 +78,15 @@ async function handleWhatsAppMessage(sender: string, message: string) {
     if (!sender) return;
     
     sender = sender.replace(/\D/g, ''); // Ensure sender is numeric
+    if (sender.startsWith('0')) {
+        sender = '62' + sender.substring(1);
+    }
 
     try {
         // 1. Get UserId from phoneDirectory
         const phoneDoc = await getDoc(doc(db, 'phoneDirectory', sender));
         if (!phoneDoc.exists()) {
-            console.log(`Phone number ${sender} not registered in phoneDirectory.`);
+            console.log(`[WA Handler] Phone number ${sender} not registered in phoneDirectory.`);
             await sendFonnteMessage(sender, "Nomor WhatsApp Anda belum terdaftar di aplikasi Anggaran. Silakan buka aplikasi Anggaran, masuk ke Pengaturan WhatsApp, dan daftarkan nomor ini bersama dengan Email Bot.");
             return;
         }
@@ -93,19 +96,14 @@ async function handleWhatsAppMessage(sender: string, message: string) {
         // 2. Fetch User State
         const userDoc = await getDoc(doc(db, 'userState', userId));
         if (!userDoc.exists()) {
-            console.log(`User ${userId} state not found.`);
+            console.log(`[WA Handler] User ${userId} state not found.`);
             return;
         }
 
         const state: any = userDoc.data();
-        
-        console.log("User state successfully retrieved for:", state.userProfile.name);
+        console.log(`[WA Handler] User state successfully retrieved for: ${state.userProfile.name}`);
 
         // 3. Process with Gemini
-        // We prompt Gemini to output a specific JSON structure based on the message.
-        const today = new Date();
-        const dateStr = today.toISOString().split('T')[0];
-
         const prompt = `
 Anda adalah Asisten Keuangan Pribadi (AI) yang terhubung via WhatsApp.
 Data Anggaran Bulanan Pengguna Saat Ini:
@@ -133,6 +131,7 @@ Tugas Anda:
 OUTPUT HARUS STRICTLY JSON (TANPA MARKDOWN, TANPA TEKS LAINNYA).
 `;
 
+        console.log(`[WA Handler] Calling Gemini AI...`);
         const response = await ai.models.generateContent({
             model: "gemini-2.5-pro",
             contents: prompt,
@@ -142,11 +141,13 @@ OUTPUT HARUS STRICTLY JSON (TANPA MARKDOWN, TANPA TEKS LAINNYA).
         });
 
         const textResponse = response.text;
+        console.log(`[WA Handler] Gemini Response:`, textResponse);
         if (!textResponse) throw new Error("Empty AI response");
 
         const parsed = JSON.parse(textResponse);
 
         if (parsed.action === "record_expense" && parsed.data) {
+            console.log(`[WA Handler] Action is record_expense...`);
             // Update Firestore with the new transaction
             const budgetId = parsed.data.budgetId;
             const budgetIndex = state.budgets.findIndex((b: any) => b.id === budgetId);
@@ -172,16 +173,17 @@ OUTPUT HARUS STRICTLY JSON (TANPA MARKDOWN, TANPA TEKS LAINNYA).
                 dailyExpenses: updatedDaily
             });
 
-            console.log("Successfully recorded expense via WhatsApp.");
+            console.log(`[WA Handler] Successfully recorded expense via WhatsApp in Firestore.`);
         }
 
         // 4. Send Reply via Fonnte
         if (parsed.reply) {
+            console.log(`[WA Handler] Sending reply to WA...`);
             await sendFonnteMessage(sender, parsed.reply);
         }
 
     } catch (error) {
-        console.error("Error processing WhatsApp message:", error);
+        console.error("[WA Handler] Error processing WhatsApp message:", error);
     }
 }
 
